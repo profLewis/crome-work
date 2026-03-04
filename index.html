@@ -25,9 +25,16 @@
     padding: 10px 14px; border-radius: 6px; font-size: 12px; z-index: 5;
     box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   }
-  #legend div { display: flex; align-items: center; margin: 3px 0; }
-  #legend span { width: 14px; height: 14px; display: inline-block; margin-right: 6px; border-radius: 2px; }
+  #legend div { display: flex; align-items: center; margin: 3px 0; cursor: pointer; user-select: none; }
+  #legend div.off { opacity: 0.35; text-decoration: line-through; }
+  #legend span { width: 14px; height: 14px; display: inline-block; margin-right: 6px; border-radius: 2px; flex-shrink: 0; }
   #status { color: #aaa; margin-left: auto; font-size: 12px; }
+  #info-bar {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 22px;
+    background: rgba(0,0,0,0.7); color: #bbb; font-size: 11px;
+    display: flex; align-items: center; padding: 0 10px; gap: 16px; z-index: 5;
+  }
+  #info-bar a { color: #8cf; }
 </style>
 </head>
 <body>
@@ -38,15 +45,19 @@
 </div>
 <div id="map"></div>
 <div id="legend">
-  <div><span style="background:#FFFF00"></span> AC - Arable Crops</div>
-  <div><span style="background:#FFAA00"></span> FA - Fallow</div>
-  <div><span style="background:#B4783C"></span> HE - Heather</div>
-  <div><span style="background:#C8C864"></span> LG - Legumes/Grass</div>
-  <div><span style="background:#AAFF00"></span> PG - Perm. Grassland</div>
-  <div><span style="background:#00A800"></span> WO - Woodland</div>
-  <div><span style="background:#FF55FF"></span> SR - Short Rotation</div>
-  <div><span style="background:#0070FF"></span> WA - Water</div>
-  <div><span style="background:#BEBEBE"></span> NA - Non-Agricultural</div>
+  <div data-class="AC"><span style="background:#FFFF00"></span> AC - Arable Crops</div>
+  <div data-class="FA"><span style="background:#FFAA00"></span> FA - Fallow</div>
+  <div data-class="HE"><span style="background:#B4783C"></span> HE - Heather</div>
+  <div data-class="LG"><span style="background:#C8C864"></span> LG - Legumes/Grass</div>
+  <div data-class="PG"><span style="background:#AAFF00"></span> PG - Perm. Grassland</div>
+  <div data-class="WO"><span style="background:#00A800"></span> WO - Woodland</div>
+  <div data-class="SR"><span style="background:#FF55FF"></span> SR - Short Rotation</div>
+  <div data-class="WA"><span style="background:#0070FF"></span> WA - Water</div>
+  <div data-class="NA"><span style="background:#BEBEBE"></span> NA - Non-Agricultural</div>
+</div>
+<div id="info-bar">
+  <span>Data: <a href="https://www.data.gov.uk/dataset/be5d88c9-acfb-4052-bf6b-ee9a416cfe60/crop-map-of-england-crome" target="_blank">CROME</a> &copy; Environment Agency / Defra (OGL v3)</span>
+  <span id="tile-info"></span>
 </div>
 <script>
 const protocol = new pmtiles.Protocol();
@@ -182,7 +193,49 @@ function switchYear(year) {
   });
 
   document.getElementById("status").textContent = `Year: ${year}`;
+
+  // Show file info
+  const fileUrl = `${BASE_URL}/pmtiles_per_year/crome_${year}.pmtiles`;
+  fetch(fileUrl, { method: 'HEAD' }).then(r => {
+    const bytes = r.headers.get('content-length');
+    const mb = bytes ? (bytes / 1048576).toFixed(0) : '?';
+    const host = new URL(fileUrl).hostname;
+    document.getElementById("tile-info").textContent =
+      `PMTiles: ${mb} MB | Served from ${host} via HTTP range requests`;
+  }).catch(() => {});
+
+  updateFilter();
 }
+
+// Legend class toggle
+const hiddenClasses = new Set();
+
+function updateFilter() {
+  if (!map.getLayer("crome-fill")) return;
+  if (hiddenClasses.size === 0) {
+    map.setFilter("crome-fill", null);
+    map.setFilter("crome-line", null);
+  } else {
+    const filter = ["!", ["in", ["slice", ["get", "lucode"], 0, 2],
+      ["literal", [...hiddenClasses]]]];
+    map.setFilter("crome-fill", filter);
+    map.setFilter("crome-line", filter);
+  }
+}
+
+document.getElementById("legend").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-class]");
+  if (!row) return;
+  const cls = row.dataset.class;
+  if (hiddenClasses.has(cls)) {
+    hiddenClasses.delete(cls);
+    row.classList.remove("off");
+  } else {
+    hiddenClasses.add(cls);
+    row.classList.add("off");
+  }
+  updateFilter();
+});
 
 map.on("load", init);
 
