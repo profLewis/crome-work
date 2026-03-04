@@ -55,14 +55,16 @@ maplibregl.addProtocol("pmtiles", protocol.tile);
 const YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
 let currentYear = null;
 
-// Detect base URL: works on GitHub Pages or locally
+// Detect base URL for PMTiles files
+// GitHub Pages doesn't serve LFS files, so use media.githubusercontent.com
 const BASE_URL = (() => {
   const loc = window.location;
-  // GitHub Pages: https://user.github.io/repo/
   if (loc.hostname.endsWith('.github.io')) {
-    return loc.origin + loc.pathname.replace(/\/[^/]*$/, '');
+    // Extract user/repo from GitHub Pages URL
+    const user = loc.hostname.split('.')[0];
+    const repo = loc.pathname.split('/')[1] || '';
+    return `https://media.githubusercontent.com/media/${user}/${repo}/main`;
   }
-  // Local file or other server
   return loc.origin + loc.pathname.replace(/\/[^/]*$/, '');
 })();
 
