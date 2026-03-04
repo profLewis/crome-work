@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CROME PMTiles Preview</title>
+<script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/pmtiles@3.0.6/dist/pmtiles.js"></script>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  #map { position: absolute; top: 40px; bottom: 0; width: 100%; }
+  #controls {
+    position: absolute; top: 0; left: 0; right: 0; height: 40px;
+    background: #222; color: #fff; display: flex; align-items: center;
+    padding: 0 16px; gap: 12px; z-index: 10; font-size: 14px;
+  }
+  #controls label { cursor: pointer; }
+  #controls input[type=radio] { margin-right: 4px; }
+  .year-btn {
+    padding: 4px 12px; border: 1px solid #555; border-radius: 4px;
+    background: #333; color: #ccc; cursor: pointer; font-size: 13px;
+  }
+  .year-btn.active { background: #4a9; color: #fff; border-color: #4a9; }
+  #legend {
+    position: absolute; bottom: 30px; right: 10px; background: rgba(255,255,255,0.92);
+    padding: 10px 14px; border-radius: 6px; font-size: 12px; z-index: 5;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  #legend div { display: flex; align-items: center; margin: 3px 0; }
+  #legend span { width: 14px; height: 14px; display: inline-block; margin-right: 6px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="controls">
+  <strong>CROME</strong>
+  <span id="year-buttons"></span>
+  <span id="info" style="margin-left:auto;color:#aaa"></span>
+</div>
+<div id="map"></div>
+<div id="legend">
+  <div><span style="background:#FFFF00"></span> AC - Arable Crops</div>
+  <div><span style="background:#FFAA00"></span> FA - Fallow</div>
+  <div><span style="background:#B4783C"></span> HE - Heather</div>
+  <div><span style="background:#C8C864"></span> LG - Legumes/Grass</div>
+  <div><span style="background:#AAFF00"></span> PG - Perm. Grassland</div>
+  <div><span style="background:#00A800"></span> WO - Woodland</div>
+  <div><span style="background:#FF55FF"></span> SR - Short Rotation</div>
+  <div><span style="background:#0070FF"></span> WA - Water</div>
+  <div><span style="background:#BEBEBE"></span> NA - Non-Agricultural</div>
+</div>
+<script>
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles", protocol.tile);
+
+const YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
+const TILE_URL = "/tiles";
+let currentYear = 2017;
+
+// Color by lucode prefix
+const lucodeColors = [
+  "match", ["slice", ["get", "lucode"], 0, 2],
+  "AC", "#FFFF00",
+  "FA", "#FFAA00",
+  "HE", "#B4783C",
+  "LG", "#C8C864",
+  "PG", "#AAFF00",
+  "WO", "#00A800",
+  "SR", "#FF55FF",
+  "TC", "#8C4614",
+  "NA", "#006400",
+  "WA", "#0070FF",
+  "UR", "#BEBEBE",
+  "EN", "#FF0000",
+  "SH", "#808000",
+  "#999999"
+];
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        attribution: "&copy; OpenStreetMap"
+      }
+    },
+    layers: [{ id: "osm", type: "raster", source: "osm" }]
+  },
+  center: [-1.5, 52.5],
+  zoom: 6
+});
+
+// Build year buttons
+const btnContainer = document.getElementById("year-buttons");
+YEARS.forEach(y => {
+  const btn = document.createElement("button");
+  btn.className = "year-btn" + (y === currentYear ? " active" : "");
+  btn.textContent = y;
+  btn.onclick = () => switchYear(y);
+  btn.id = "btn-" + y;
+  btnContainer.appendChild(btn);
+});
+
+function switchYear(year) {
+  document.querySelectorAll(".year-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("btn-" + year).classList.add("active");
+  currentYear = year;
+
+  // Remove old source+layer
+  if (map.getLayer("crome-fill")) map.removeLayer("crome-fill");
+  if (map.getLayer("crome-line")) map.removeLayer("crome-line");
+  if (map.getSource("crome")) map.removeSource("crome");
+
+  const pmtilesUrl = `${TILE_URL}/crome_${year}`;
+
+  map.addSource("crome", {
+    type: "vector",
+    tiles: [`${pmtilesUrl}/{z}/{x}/{y}.mvt`],
+    minzoom: 0,
+    maxzoom: 12
+  });
+
+  map.addLayer({
+    id: "crome-fill",
+    type: "fill",
+    source: "crome",
+    "source-layer": "crome",
+    paint: {
+      "fill-color": lucodeColors,
+      "fill-opacity": 0.7
+    }
+  });
+
+  map.addLayer({
+    id: "crome-line",
+    type: "line",
+    source: "crome",
+    "source-layer": "crome",
+    minzoom: 10,
+    paint: {
+      "line-color": "#333",
+      "line-width": 0.3
+    }
+  });
+
+  document.getElementById("info").textContent = `Year: ${year}`;
+}
+
+map.on("load", () => switchYear(currentYear));
+
+map.on("click", "crome-fill", (e) => {
+  if (e.features.length > 0) {
+    const f = e.features[0];
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`<strong>${f.properties.lucode}</strong><br>Year: ${f.properties.year || currentYear}`)
+      .addTo(map);
+  }
+});
+
+map.on("mouseenter", "crome-fill", () => map.getCanvas().style.cursor = "pointer");
+map.on("mouseleave", "crome-fill", () => map.getCanvas().style.cursor = "");
+</script>
+</body>
+</html>

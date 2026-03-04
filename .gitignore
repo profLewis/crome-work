@@ -1,0 +1,14 @@
+# Large data files (not needed in repo)
+gdb_downloads/
+tmp_geojsonseq/
+counties/
+counties_wfs/
+counties_wfs_geojsonseq/
+geotiff/
+raster_tiles/
+raster_pmtiles/
+*.gdb.zip
+geojson_fifo_*
+
+# OS files
+.DS_Store
