@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CROME 2023 Download Progress</title>
+<script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0f1117; color: #e0e0e0; }
+  .container { display: grid; grid-template-columns: 1fr 420px; height: 100vh; }
+  #map { width: 100%; height: 100%; }
+  .sidebar { padding: 20px; overflow-y: auto; border-left: 1px solid #2a2d35; }
+  h1 { font-size: 20px; margin-bottom: 4px; color: #fff; }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 16px; }
+  .stats-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .stat-card {
+    flex: 1; background: #1a1d27; border-radius: 8px; padding: 12px;
+    border: 1px solid #2a2d35;
+  }
+  .stat-card .label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 22px; font-weight: 700; color: #fff; margin-top: 2px; }
+  .stat-card .value.green { color: #4ade80; }
+  .progress-bar {
+    width: 100%; height: 8px; background: #2a2d35; border-radius: 4px;
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .county-list { font-size: 12px; }
+  .county-row {
+    display: flex; align-items: center; padding: 5px 8px; border-radius: 4px;
+    margin-bottom: 2px;
+  }
+  .county-row:hover { background: #1a1d27; }
+  .county-row .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+  .county-row .name { flex: 1; }
+  .county-row .count { color: #888; font-variant-numeric: tabular-nums; }
+  .done .dot { background: #4ade80; }
+  .wip .dot { background: #facc15; animation: pulse 1s infinite; }
+  .pending .dot { background: #555; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .section-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 6px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div id="map"></div>
+  <div class="sidebar">
+    <h1>CROME 2023 Download</h1>
+    <div class="subtitle">Crop Map of England &mdash; WFS county-by-county</div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label">Counties</div>
+        <div class="value green" id="county-count">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Features</div>
+        <div class="value" id="feature-count">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Data</div>
+        <div class="value" id="data-size">-</div>
+      </div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%;background:linear-gradient(90deg,#4ade80,#22d3ee)"></div></div>
+    <div id="county-list" class="county-list"></div>
+  </div>
+</div>
+<script>
+// County approximate centroids for map markers
+const COUNTY_COORDS = {
+  "Bedfordshire": [-0.45, 52.0],
+  "Berkshire": [-1.2, 51.45],
+  "Bristol_And_Somerset": [-2.9, 51.1],
+  "Buckinghamshire": [-0.8, 51.8],
+  "Cambridgeshire": [0.1, 52.3],
+  "Cheshire": [-2.6, 53.2],
+  "City_And_Greater_London": [-0.1, 51.5],
+  "Cornwall": [-5.0, 50.3],
+  "Cumbria": [-2.8, 54.6],
+  "Derbyshire": [-1.5, 53.1],
+  "Devon": [-3.6, 50.7],
+  "Dorset": [-2.3, 50.75],
+  "Durham": [-1.7, 54.7],
+  "East_Riding_Of_Yorkshire": [-0.6, 53.85],
+  "East_Sussex": [0.25, 50.9],
+  "Essex": [0.6, 51.75],
+  "Gloucestershire": [-2.15, 51.85],
+  "Greater_Manchester": [-2.25, 53.5],
+  "Hampshire": [-1.3, 51.05],
+  "Herefordshire": [-2.75, 52.1],
+  "Hertfordshire": [-0.2, 51.8],
+  "Isle_Of_Wight": [-1.3, 50.68],
+  "Kent": [0.8, 51.25],
+  "Lancashire": [-2.65, 53.85],
+  "Leicestershire": [-1.15, 52.65],
+  "Lincolnshire": [-0.2, 53.1],
+  "Merseyside": [-2.9, 53.45],
+  "Norfolk": [1.0, 52.65],
+  "North_Yorkshire": [-1.5, 54.2],
+  "Northamptonshire": [-0.9, 52.3],
+  "Northumberland": [-2.0, 55.3],
+  "Nottinghamshire": [-1.0, 53.1],
+  "Oxfordshire": [-1.25, 51.75],
+  "Rutland": [-0.65, 52.65],
+  "Shropshire": [-2.75, 52.6],
+  "South_Yorkshire": [-1.35, 53.45],
+  "Staffordshire": [-2.0, 52.85],
+  "Suffolk": [1.15, 52.2],
+  "Surrey": [-0.4, 51.25],
+  "Tyne_and_Wear": [-1.6, 55.0],
+  "Warwickshire": [-1.55, 52.3],
+  "West_Midlands": [-1.9, 52.5],
+  "West_Sussex": [-0.5, 50.9],
+  "West_Yorkshire": [-1.7, 53.75],
+  "Wiltshire": [-1.85, 51.35],
+  "Worcestershire": [-2.2, 52.2]
+};
+
+const ALL_COUNTIES = Object.keys(COUNTY_COORDS);
+
+// Data from download (update this array to refresh)
+const downloaded = [
+  {"name":"Bedfordshire","features":299396,"bytes":141946795,"done":true},
+  {"name":"Berkshire","features":306727,"bytes":144454221,"done":true},
+  {"name":"Bristol_And_Somerset","features":1030148,"bytes":496962986,"done":true},
+  {"name":"Buckinghamshire","features":452116,"bytes":215721019,"done":true},
+  {"name":"Cambridgeshire","features":820046,"bytes":386796071,"done":true},
+  {"name":"Cheshire","features":567668,"bytes":266968080,"done":true},
+  {"name":"City_And_Greater_London","features":376294,"bytes":181521510,"done":true},
+  {"name":"Cornwall","features":862070,"bytes":405471770,"done":true},
+  {"name":"Cumbria","features":1646209,"bytes":773403932,"done":true},
+  {"name":"Derbyshire","features":635717,"bytes":300200461,"done":true},
+  {"name":"Devon","features":1619177,"bytes":757442092,"done":true},
+  {"name":"Dorset","features":641303,"bytes":300335715,"done":true},
+  {"name":"Durham","features":644571,"bytes":301891294,"done":true},
+  {"name":"East_Riding_Of_Yorkshire","features":599754,"bytes":291462258,"done":true},
+  {"name":"East_Sussex","features":433829,"bytes":201840407,"done":true},
+  {"name":"Essex","features":889025,"bytes":407420723,"done":true},
+  {"name":"Gloucestershire","features":762457,"bytes":363935816,"done":true},
+  {"name":"Greater_Manchester","features":307262,"bytes":147519736,"done":true},
+  {"name":"Hampshire","features":910130,"bytes":428805038,"done":true},
+  {"name":"Herefordshire","features":523535,"bytes":248823535,"done":true},
+  {"name":"Hertfordshire","features":393416,"bytes":186384204,"done":true},
+  {"name":"Isle_Of_Wight","features":91798,"bytes":43559986,"done":true},
+  {"name":"Kent","features":906105,"bytes":414298570,"done":true},
+  {"name":"Lancashire","features":744011,"bytes":351358414,"done":true},
+  {"name":"Leicestershire","features":520980,"bytes":248097795,"done":true},
+  {"name":"Lincolnshire","features":1679186,"bytes":794191060,"done":true},
+  {"name":"Merseyside","features":154427,"bytes":72855753,"done":true},
+  {"name":"Norfolk","features":1297482,"bytes":597553318,"done":true},
+  {"name":"North_Yorkshire","features":2081248,"bytes":994473638,"done":true},
+  {"name":"Northamptonshire","features":568458,"bytes":271830197,"done":true},
+  {"name":"Northumberland","features":1211383,"bytes":577389807,"done":true},
+  {"name":"Nottinghamshire","features":517984,"bytes":247685532,"done":true},
+  {"name":"Oxfordshire","features":624904,"bytes":295707895,"done":true},
+  {"name":"Rutland","features":93616,"bytes":43842271,"done":true},
+  {"name":"Shropshire","features":842570,"bytes":397969693,"done":true},
+  {"name":"South_Yorkshire","features":372615,"bytes":177766302,"done":true},
+  {"name":"Staffordshire","features":651977,"bytes":309860491,"done":true},
+  {"name":"Suffolk","features":250000,"bytes":0,"done":false}
+];
+
+const doneMap = {};
+downloaded.forEach(d => doneMap[d.name] = d);
+
+const doneCount = downloaded.filter(d => d.done).length;
+const wipCount = downloaded.filter(d => !d.done).length;
+const totalFeatures = downloaded.reduce((s, d) => s + d.features, 0);
+const totalBytes = downloaded.reduce((s, d) => s + d.bytes, 0);
+
+document.getElementById("county-count").textContent = `${doneCount} / 46`;
+document.getElementById("feature-count").textContent = (totalFeatures / 1e6).toFixed(1) + "M";
+document.getElementById("data-size").textContent = (totalBytes / 1e9).toFixed(1) + " GB";
+document.getElementById("progress").style.width = ((doneCount / 46) * 100).toFixed(1) + "%";
+
+// Build county list
+const listEl = document.getElementById("county-list");
+
+function addSection(label) {
+  const el = document.createElement("div");
+  el.className = "section-label";
+  el.textContent = label;
+  listEl.appendChild(el);
+}
+
+function addCounty(name, status, features) {
+  const row = document.createElement("div");
+  row.className = "county-row " + status;
+  const niceName = name.replace(/_/g, " ");
+  row.innerHTML = `<div class="dot"></div><div class="name">${niceName}</div><div class="count">${features ? features.toLocaleString() : ""}</div>`;
+  listEl.appendChild(row);
+}
+
+const doneCounties = downloaded.filter(d => d.done).sort((a, b) => b.features - a.features);
+const wipCounties = downloaded.filter(d => !d.done);
+const pendingCounties = ALL_COUNTIES.filter(c => !doneMap[c]).sort();
+
+if (wipCounties.length) {
+  addSection("Downloading");
+  wipCounties.forEach(d => addCounty(d.name, "wip", d.features));
+}
+if (pendingCounties.length) {
+  addSection("Pending");
+  pendingCounties.forEach(c => addCounty(c, "pending", 0));
+}
+addSection(`Completed (${doneCounties.length})`);
+doneCounties.forEach(d => addCounty(d.name, "done", d.features));
+
+// Map
+const map = new maplibregl.Map({
+  container: "map",
+  style: {
+    version: 8,
+    sources: {
+      carto: {
+        type: "raster",
+        tiles: ["https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"],
+        tileSize: 256,
+        attribution: "&copy; CARTO &copy; OSM"
+      }
+    },
+    layers: [{ id: "carto", type: "raster", source: "carto" }]
+  },
+  center: [-1.5, 52.8],
+  zoom: 5.8
+});
+
+map.on("load", () => {
+  const features = ALL_COUNTIES.map(name => {
+    const coords = COUNTY_COORDS[name];
+    if (!coords) return null;
+    const d = doneMap[name];
+    let status, features_count;
+    if (d && d.done) { status = "done"; features_count = d.features; }
+    else if (d) { status = "wip"; features_count = d.features; }
+    else { status = "pending"; features_count = 0; }
+    // Circle size based on feature count
+    const radius = Math.max(8, Math.min(30, Math.sqrt(features_count / 1000)));
+    return {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: coords },
+      properties: { name: name.replace(/_/g, " "), status, features: features_count, radius }
+    };
+  }).filter(Boolean);
+
+  map.addSource("counties", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features }
+  });
+
+  // Pending circles
+  map.addLayer({
+    id: "pending",
+    type: "circle",
+    source: "counties",
+    filter: ["==", ["get", "status"], "pending"],
+    paint: {
+      "circle-radius": 8,
+      "circle-color": "#333",
+      "circle-stroke-color": "#555",
+      "circle-stroke-width": 1,
+      "circle-opacity": 0.6
+    }
+  });
+
+  // WIP circles
+  map.addLayer({
+    id: "wip",
+    type: "circle",
+    source: "counties",
+    filter: ["==", ["get", "status"], "wip"],
+    paint: {
+      "circle-radius": ["get", "radius"],
+      "circle-color": "#facc15",
+      "circle-stroke-color": "#fbbf24",
+      "circle-stroke-width": 2,
+      "circle-opacity": 0.7
+    }
+  });
+
+  // Done circles
+  map.addLayer({
+    id: "done-circles",
+    type: "circle",
+    source: "counties",
+    filter: ["==", ["get", "status"], "done"],
+    paint: {
+      "circle-radius": ["get", "radius"],
+      "circle-color": "#4ade80",
+      "circle-stroke-color": "#22c55e",
+      "circle-stroke-width": 1.5,
+      "circle-opacity": 0.6
+    }
+  });
+
+  // Labels
+  map.addLayer({
+    id: "labels",
+    type: "symbol",
+    source: "counties",
+    layout: {
+      "text-field": ["get", "name"],
+      "text-size": 10,
+      "text-offset": [0, -1.8],
+      "text-anchor": "bottom"
+    },
+    paint: {
+      "text-color": "#ccc",
+      "text-halo-color": "#000",
+      "text-halo-width": 1
+    }
+  });
+
+  // Popup on click
+  map.on("click", ["done-circles", "wip", "pending"], (e) => {
+    const f = e.features[0].properties;
+    new maplibregl.Popup({ offset: 10 })
+      .setLngLat(e.lngLat)
+      .setHTML(`<div style="color:#000"><strong>${f.name}</strong><br>${f.features ? f.features.toLocaleString() + ' features' : 'Pending'}<br>Status: ${f.status}</div>`)
+      .addTo(map);
+  });
+
+  ["done-circles", "wip", "pending"].forEach(l => {
+    map.on("mouseenter", l, () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", l, () => map.getCanvas().style.cursor = "");
+  });
+});
+</script>
+</body>
+</html>

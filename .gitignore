@@ -7,6 +7,7 @@ counties_wfs_geojsonseq/
 geotiff/
 raster_tiles/
 raster_pmtiles/
+pmtiles_full/
 *.gdb.zip
 geojson_fifo_*
 
